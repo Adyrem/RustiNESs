@@ -6,7 +6,8 @@ fn main() {
 
     //let rom_all: [u8; 0x8010] = *include_bytes!("../Roms/1_Example.nes");
     //let rom_all: [u8; 0x8010] = *include_bytes!("../Roms/2_ReadWrite.nes");
-    let rom_all: [u8; 0x8010] = *include_bytes!("../Roms/3_Branches.nes");
+    //let rom_all: [u8; 0x8010] = *include_bytes!("../Roms/3_Branches.nes");
+    let rom_all: [u8; 0x8010] = *include_bytes!("../Roms/4_TheStack.nes");
 
     let mut state = emulator::Emulator::new(rom_all);
 
