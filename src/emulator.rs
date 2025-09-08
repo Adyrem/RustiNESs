@@ -57,8 +57,7 @@ impl Emulator {
             return self.rom[(address-0x8000) as usize];
         }
 
-        //TODO should probably return an error instead
-        return 0;
+        panic!("Error reading from RAM or ROM");
     }
 
     pub fn write(&mut self, address: u16, value: u8) {
