@@ -92,6 +92,8 @@ impl Emulator {
         else if self.running_cycle == 1 {
             match self.opcode {
                 0x02 => self.halted = true,
+                0x08 => self.push_flags(),
+                0x28 => self.pull_flags(),
                 0x10 | 0x30 | 0x50 | 0x70 | 0x90 | 0xB0 | 0xD0 | 0xF0 //BPL, BMI, BVC, BVS, BCC, BCS, BNE, BEQ
                  | 0x20 | 0x4C //JSR, JMP
                  | 0x84..0x86 //STY, STA, STX Zero page
@@ -126,7 +128,6 @@ impl Emulator {
                 _ => {self.missing_opcode();}
             };
 
-            
         }
         else if self.running_cycle == 2 {
             match self.opcode {
@@ -222,6 +223,31 @@ impl Emulator {
         let ret_val = self.read(0x100 + self.stack_pointer as u16);
         self.no_op_cycle += 2;
         return ret_val;
+    }
+
+    fn push_flags(&mut self) {
+        let mut flag_bytes: u8 = 0;
+        flag_bytes += if self.flags.flag_carry { 1 } else { 0 };
+        flag_bytes += if self.flags.flag_zero { 2 } else { 0 };
+        flag_bytes += if self.flags.flag_interrupt_disable { 4 } else { 0 };
+        flag_bytes += if self.flags.flag_decimal { 8 } else { 0 };
+        flag_bytes += 16;
+        flag_bytes += 32;
+        flag_bytes += if self.flags.flag_overflow { 64 } else { 0 };
+        flag_bytes += if self.flags.flag_negative { 128 } else { 0 };
+        self.push(flag_bytes);
+    }
+
+    fn pull_flags(&mut self){
+        let flag_bytes: u8 = self.pull();
+        self.flags.flag_carry = flag_bytes & 1 != 0;
+        self.flags.flag_zero = flag_bytes & 2 != 0;
+        self.flags.flag_interrupt_disable = flag_bytes & 4 != 0;
+        self.flags.flag_decimal = flag_bytes & 8 != 0;
+        //16
+        //32
+        self.flags.flag_overflow = flag_bytes & 64 != 0;
+        self.flags.flag_negative = flag_bytes & 128 != 0;
     }
 
     fn set_flags(&mut self, val: u8) {
