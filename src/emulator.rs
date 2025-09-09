@@ -99,13 +99,27 @@ impl Emulator {
                  | 0xA5 //LDA Zero page
                  | 0xAD //LDA Absolute
                  => { self.temp_bytes[0] = self.read(self.program_counter); reset = false; self.increment_pc();}, 
+                0x18 => { self.flags.flag_carry = false } //CLC
+                0x38 => { self.flags.flag_carry = true } //SEC
+                0x58 => { self.flags.flag_interrupt_disable = false } //CLI
+                0x78 => { self.flags.flag_interrupt_disable = true } //SEI
+                0xB8 => { self.flags.flag_overflow = true } //CLV
+                0xD8 => { self.flags.flag_decimal = false } //CLD
+                0xF8 => { self.flags.flag_decimal = true } //SED
+                0xEA => { } //NOP
                 0x48 => { self.push(self.a); } //PHA
                 0x60 => { self.temp_bytes[0] = self.pull(); reset = false;} //RTS
                 0x68 => { self.a = self.pull();} //PLA
                 0x88 => { self.y -= 1; self.set_flags(self.x);}, //DEY
+                0x8A => { self.a = self.x; self.set_flags(self.a);}, //TXA
+                0x98 => { self.a = self.y; self.set_flags(self.a);}, //TYA
+                0x9A => { self.stack_pointer = self.x }, //TXS
                 0xA0 => { self.y = self.read(self.program_counter); self.increment_pc();}, //LDY Immediate
                 0xA2 => { self.x = self.read(self.program_counter); self.increment_pc();}, //LDX Immediate
                 0xA9 => { self.a = self.read(self.program_counter); self.set_flags(self.a); self.increment_pc();}, //LDA Immediate
+                0xA8 => { self.y = self.a; self.set_flags(self.y);}, //TAY
+                0xAA => { self.x = self.a; self.set_flags(self.x);}, //TAX
+                0xBA => { self.x = self.stack_pointer; self.set_flags(self.x);}, //TSX
                 0xC8 => { self.y += 1; self.set_flags(self.y);}, //INY
                 0xCA => { self.x -= 1; self.set_flags(self.x);}, //DEX
                 0xE8 => { self.x += 1; self.set_flags(self.x);}, //INX
