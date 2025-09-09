@@ -1,5 +1,3 @@
-//TODO continue with The Stack
-
 mod emulator;
 
 fn main() {

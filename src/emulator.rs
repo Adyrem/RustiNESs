@@ -18,7 +18,9 @@ pub struct Emulator {
     pub x: u8,
     pub y: u8,
     pub halted: bool,
-    pub cycle: u16,
+    running_cycle: u8,
+    no_op_cycle: u8,
+    total_cycles: u8,
     opcode: u8,
     temp_bytes: [u8; 4], // Can be used to store values inbetween cpu cycles, not to be confused with registers
     flags: Flags
@@ -35,7 +37,9 @@ impl Emulator {
             x: 0,
             y: 0,
             halted: false, 
-            cycle: 0, 
+            running_cycle: 0, 
+            no_op_cycle: 0, 
+            total_cycles: 0, 
             opcode: 0, 
             temp_bytes: [0; 4],
             flags: Flags { flag_carry: false, flag_zero: false, flag_interrupt_disable: true, flag_decimal: false, flag_overflow: false, flag_negative: false }
@@ -72,56 +76,67 @@ impl Emulator {
         //By default, the cpu cycle count is reset to 0 after an instruction
         let mut reset = true;
 
-        if self.cycle == 0 {
+        //Some operations take more than 1 cycle per operation, e.g. pull which takes 3 cycles for a single method call + 1 for the actual PLA instruction
+        // This will need more reworking in the future for better accuracy
+        if self.no_op_cycle > 0 {
+            self.no_op_cycle -= 1;
+            self.total_cycles += 1;
+            return;
+        }
+
+        if self.running_cycle == 0 {
             self.opcode = self.read(self.program_counter);
             reset = false;
             self.increment_pc();
         }
-        else if self.cycle == 1 {
+        else if self.running_cycle == 1 {
             match self.opcode {
                 0x02 => self.halted = true,
                 0x10 | 0x30 | 0x50 | 0x70 | 0x90 | 0xB0 | 0xD0 | 0xF0 //BPL, BMI, BVC, BVS, BCC, BCS, BNE, BEQ
-                 | 0x20 //JSR
+                 | 0x20 | 0x4C //JSR, JMP
                  | 0x84..0x86 //STY, STA, STX Zero page
                  | 0x8C..0x8E //STY, STA, STX Absolute
                  | 0xA5 //LDA Zero page
                  | 0xAD //LDA Absolute
                  => { self.temp_bytes[0] = self.read(self.program_counter); reset = false; self.increment_pc();}, 
-                0x48 => { self.push(self.a); reset = false; } //PHA
+                0x48 => { self.push(self.a); } //PHA
                 0x60 => { self.temp_bytes[0] = self.pull(); reset = false;} //RTS
-                0x68 => { self.a = self.pull(); reset = false;} //PLA
+                0x68 => { self.a = self.pull();} //PLA
+                0x88 => { self.y -= 1; self.set_flags(self.x);}, //DEY
                 0xA0 => { self.y = self.read(self.program_counter); self.increment_pc();}, //LDY Immediate
                 0xA2 => { self.x = self.read(self.program_counter); self.increment_pc();}, //LDX Immediate
                 0xA9 => { self.a = self.read(self.program_counter); self.set_flags(self.a); self.increment_pc();}, //LDA Immediate
+                0xC8 => { self.y += 1; self.set_flags(self.y);}, //INY
+                0xCA => { self.x -= 1; self.set_flags(self.x);}, //DEX
+                0xE8 => { self.x += 1; self.set_flags(self.x);}, //INX
                 _ => {self.missing_opcode();}
             };
 
             
         }
-        else if self.cycle == 2 {
+        else if self.running_cycle == 2 {
             match self.opcode {
                 0x10 => { if !self.flags.flag_negative { self.take_branch(self.temp_bytes[0]) } ; }, //BPL
+                0x20 => { self.temp_bytes[1] = self.read(self.program_counter); reset = false; }, //JSR 
                 0x30 => { if self.flags.flag_negative { self.take_branch(self.temp_bytes[0]) } ; }, //BMI
-                0x48 => { } //PHA, TODO not quite sure how the cycles work out on this one. NOP as a stoppgap
+                0x4C => { self.temp_bytes[1] = self.read(self.program_counter); self.program_counter = self.temp_bytes_to_little_endian() }, //JSR 
+                0x60 => { self.temp_bytes[1] = self.pull(); reset = false;} //RTS
                 0x84 => { self.write(self.temp_bytes[0] as u16, self.y); }, //STY Zero page
                 0x85 => { self.write(self.temp_bytes[0] as u16, self.a); }, //STA Zero page
                 0x86 => { self.write(self.temp_bytes[0] as u16, self.x); }, //STX Zero page
                 0x8C..0x8E //STY, STA, STX Absolute
                 | 0xAD //LDA Absolute
                  => { self.temp_bytes[1] = self.read(self.program_counter); reset = false; self.increment_pc(); }, 
-                0x20 => { self.temp_bytes[1] = self.read(self.program_counter); reset = false; }, //JSR 
                 0xA5 => { self.a = self.read(self.temp_bytes[0] as u16); self.set_flags(self.a) }, //LDA Zero page
                 0xD0 => { if !self.flags.flag_zero { self.take_branch(self.temp_bytes[0]) } ; }, //BNE
                 0xF0 => { if self.flags.flag_zero { self.take_branch(self.temp_bytes[0]) } ; }, //BEQ
                 _ => {self.missing_opcode();}
             };
-
         }
-        else if self.cycle == 3 {
+        else if self.running_cycle == 3 {
             match self.opcode {
                 0x20 => { self.push((self.program_counter/256) as u8); reset = false; } //JSR
-                0x60 => { self.temp_bytes[1] = self.pull(); reset = false;} //RTS
-                0x68 => { } //PLA, TODO not quite sure how the cycles work out on this one. NOP as a stoppgap
+                0x60 => { self.program_counter = self.temp_bytes_to_little_endian(); self.increment_pc();} //RTS
                 0x8C => { self.write(self.temp_bytes_to_little_endian(), self.y); }, //STY Absolute 
                 0x8D => { self.write(self.temp_bytes_to_little_endian(), self.a); }, //STA Absolute
                 0x8E => { self.write(self.temp_bytes_to_little_endian(), self.x); }, //STX Absolute
@@ -129,16 +144,15 @@ impl Emulator {
                 _ => {self.missing_opcode();}
             };
         }
-        else if self.cycle == 4 {
+        else if self.running_cycle == 4 {
             match self.opcode {
                 0x20 => { self.push(self.program_counter as u8); reset = false; } //JSR
                 _ => {self.missing_opcode();}
             };
         }
-        else if self.cycle == 5 {
+        else if self.running_cycle == 5 {
             match self.opcode {
                 0x20 => { self.program_counter = self.temp_bytes_to_little_endian()} //JSR
-                0x60 => { self.program_counter = self.temp_bytes_to_little_endian(); self.increment_pc();} //RTS
                 _ => {self.missing_opcode();}
             };
         }
@@ -147,10 +161,13 @@ impl Emulator {
         println!("opcode {0:x} | tempBytes {1:x} {2:x} | pc 0x{3:x} | a 0x{4:x}",
          self.opcode, self.temp_bytes[0], self.temp_bytes[1], self.program_counter, self.a);
 
-        self.cycle += 1;
+        self.running_cycle += 1;
+        self.total_cycles += 1;
 
         if reset {
-            self.cycle = 0; 
+            self.running_cycle = 0; 
+            self.no_op_cycle = 0;
+            self.total_cycles = 0;
         }
     }
 
@@ -172,7 +189,7 @@ impl Emulator {
         if signed_val > 127 {
             signed_val -= 256;
             self.program_counter += signed_val as u16;
-            self.cycle += 1; //TODO this may introduce some innacuracies as two cycles are run at once this way
+            self.no_op_cycle += 1;
         }
         else
         {
@@ -183,12 +200,13 @@ impl Emulator {
     fn push(&mut self, val: u8) {
         self.write(0x100 + self.stack_pointer as u16, val);
         self.stack_pointer -= 1;
+        self.no_op_cycle += 1;
     }
 
     fn pull(&mut self) -> u8 {
         self.stack_pointer += 1;
-        self.cycle += 1; //TODO pull seems to take 2 cycles. This may introduce some innacuracies as two cycles are run at once this way
         let ret_val = self.read(0x100 + self.stack_pointer as u16);
+        self.no_op_cycle += 2;
         return ret_val;
     }
 
