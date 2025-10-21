@@ -1,4 +1,5 @@
-
+//Next steps:
+// Implement arithmetic functions starting with 0x0A ASL
 use std::collections::VecDeque;
 
 pub struct Flags {
@@ -119,11 +120,6 @@ impl Emulator {
                     self.add_task(|s| s.push_flags()),
                 0x28 => //PLP
                     self.add_task(|s| s.pull_flags()),
-                0x10 => //BPL
-                {
-                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
-                    self.add_task(|s| { if !s.flags.flag_negative { s.take_branch(s.temp_bytes[0]) } } );
-                },
                 0x20 => //JSR
                 { 
                     self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
@@ -131,6 +127,22 @@ impl Emulator {
                     self.add_task(|s| s.push((s.program_counter/256) as u8));
                     self.add_task(|s| s.push(s.program_counter as u8));
                     self.add_task(|s| s.program_counter = s.temp_bytes_to_little_endian());
+                },
+                0x60 => //RTS
+                {
+                    self.add_task(|s| s.temp_bytes[0] = s.pull());
+                    self.add_task(|s| s.temp_bytes[1] = s.pull());
+                    self.add_task(|s| { s.program_counter = s.temp_bytes_to_little_endian(); s.increment_pc() } );
+                },
+                0x4C => //JMP 
+                {
+                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
+                    self.add_task(|s| { s.temp_bytes[1] = s.read(s.program_counter); s.program_counter = s.temp_bytes_to_little_endian() } );
+                },
+                0x10 => //BPL
+                {
+                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
+                    self.add_task(|s| { if !s.flags.flag_negative { s.take_branch(s.temp_bytes[0]) } } );
                 },
                 0x30 => //BMI
                 {
@@ -140,18 +152,22 @@ impl Emulator {
                 0x50 => //BVC
                 {
                     self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
+                    self.add_task(|s| { if !s.flags.flag_overflow { s.take_branch(s.temp_bytes[0]) } } );
                 },
                 0x70 => //BVS 
                 {
                     self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
+                    self.add_task(|s| { if s.flags.flag_overflow { s.take_branch(s.temp_bytes[0]) } } );
                 },
                 0x90 => //BCC 
                 {
                     self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
+                    self.add_task(|s| { if !s.flags.flag_carry { s.take_branch(s.temp_bytes[0]) } } );
                 },
                 0xB0 => //BCS 
                 {
                     self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
+                    self.add_task(|s| { if s.flags.flag_carry { s.take_branch(s.temp_bytes[0]) } } );
                 },
                 0xD0 => //BNE 
                 {
@@ -162,12 +178,6 @@ impl Emulator {
                 {
                     self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
                     self.add_task(|s| { if s.flags.flag_zero { s.take_branch(s.temp_bytes[0]) } } );
-
-                },
-                0x4C => //JMP 
-                {
-                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
-                    self.add_task(|s| { s.temp_bytes[1] = s.read(s.program_counter); s.program_counter = s.temp_bytes_to_little_endian() } );
                 },
                 0x84 => //STY Zero page 
                 {
@@ -186,20 +196,17 @@ impl Emulator {
                 },
                 0x8C => //STY Absolute 
                 {
-                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
-                    self.add_task(|s| { s.temp_bytes[1] = s.read(s.program_counter); s.increment_pc() } );
+                    self.read_little_endian_to_temp_bytes();
                     self.add_task(|s| { s.write(s.temp_bytes_to_little_endian(), s.y); } );
                 },
                 0x8D => //STA Absolute 
                 {
-                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
-                    self.add_task(|s| { s.temp_bytes[1] = s.read(s.program_counter); s.increment_pc() } );
+                    self.read_little_endian_to_temp_bytes();
                     self.add_task(|s| { s.write(s.temp_bytes_to_little_endian(), s.a); } );
                 },
                 0x8E => //STX Absolute 
                 {
-                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
-                    self.add_task(|s| { s.temp_bytes[1] = s.read(s.program_counter); s.increment_pc() } );
+                    self.read_little_endian_to_temp_bytes();
                     self.add_task(|s| { s.write(s.temp_bytes_to_little_endian(), s.x); } );
                 },
                 0xA5 => //LDA Zero page 
@@ -209,8 +216,7 @@ impl Emulator {
                 },
                 0xAD => //LDA Absolute 
                 {
-                    self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
-                    self.add_task(|s| { s.temp_bytes[1] = s.read(s.program_counter); s.increment_pc() } );
+                    self.read_little_endian_to_temp_bytes();
                     self.add_task(|s| { s.a = s.read(s.temp_bytes_to_little_endian()); s.set_flags(s.a) } );
                 },
                 0x18 => //CLC
@@ -231,36 +237,30 @@ impl Emulator {
                     self.add_task(|s| {}), 
                 0x48 => //PHA
                    self.add_task(|s| s.push(s.a)), 
-                0x60 => //RTS
-                {
-                    self.add_task(|s| s.temp_bytes[0] = s.pull());
-                    self.add_task(|s| s.temp_bytes[1] = s.pull());
-                    self.add_task(|s| { s.program_counter = s.temp_bytes_to_little_endian(); s.increment_pc() } );
-                },
+                0x9A => //TXS
+                    self.add_task(|s| s.stack_pointer = s.x ), 
                 0x68 => //PLA
                     self.add_task(|s| s.a = s.pull()),
-                0x88 => //DEY
-                    self.add_task(|s| { s.y -= 1; s.set_flags(s.x) } ), 
                 0x8A => //TXA
                     self.add_task(|s| { s.a = s.x; s.set_flags(s.a) }), 
                 0x98 => //TYA
                   self.add_task(|s| { s.a = s.y; s.set_flags(s.a) } ), 
-                0x9A => //TXS
-                    self.add_task(|s| s.stack_pointer = s.x ), 
-                0xA0 => //LDY Immediate
-                    self.add_task(|s| { s.y = s.read(s.program_counter); s.increment_pc() } ),
-                0xA2 => //LDX Immediate
-                    self.add_task(|s| { s.x = s.read(s.program_counter); s.increment_pc() } ),
                 0xA9 => //LDA Immediate
                     self.add_task(|s| { s.a = s.read(s.program_counter); s.set_flags(s.a); s.increment_pc() } ),
+                0xA0 => //LDY Immediate
+                    self.add_task(|s| { s.y = s.read(s.program_counter); s.increment_pc() } ),
                 0xA8 => //TAY
                     self.add_task(|s| { s.y = s.a; s.set_flags(s.y) } ), 
-                0xAA => //TAX
-                    self.add_task(|s| { s.x = s.a; s.set_flags(s.x) } ), 
-                0xBA => //TSX
-                    self.add_task(|s| { s.x = s.stack_pointer; s.set_flags(s.x) } ), 
+                0x88 => //DEY
+                    self.add_task(|s| { s.y -= 1; s.set_flags(s.x) } ), 
                 0xC8 => //INY
                     self.add_task(|s| { s.y += 1; s.set_flags(s.y) } ), 
+                0xAA => //TAX
+                    self.add_task(|s| { s.x = s.a; s.set_flags(s.x) } ), 
+                0xA2 => //LDX Immediate
+                    self.add_task(|s| { s.x = s.read(s.program_counter); s.increment_pc() } ),
+                0xBA => //TSX
+                    self.add_task(|s| { s.x = s.stack_pointer; s.set_flags(s.x) } ), 
                 0xCA => //DEX
                     self.add_task(|s| { s.x -= 1; s.set_flags(s.x) } ), 
                 0xE8 => //INX
@@ -271,6 +271,10 @@ impl Emulator {
 
     }
     
+    fn read_little_endian_to_temp_bytes(&mut self) {
+        self.add_task(|s| { s.temp_bytes[0] = s.read(s.program_counter); s.increment_pc() } );
+        self.add_task(|s| { s.temp_bytes[1] = s.read(s.program_counter); s.increment_pc() } );
+    }
 
     fn temp_bytes_to_little_endian(&self) -> u16 {
         return self.temp_bytes[1] as u16 * 0x100 + self.temp_bytes[0] as u16;
